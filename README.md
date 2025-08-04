@@ -14,8 +14,9 @@ Invest-Pro-AI is an intelligent investment analysis platform designed to help us
 
 ### Prerequisites
 
-- Python 3.8+
-- Required dependencies listed in `requirements.txt`
+- Node.js (v14+ recommended)
+- Python 3.8+ (if applicable)
+- Required dependencies listed in `requirements.txt` and `package.json`
 
 ### Installation
 
@@ -25,17 +26,34 @@ git clone https://github.com/sanjaysaini383/Invest-Pro-AI.git
 cd Invest-Pro-AI
 ```
 
-Install dependencies:
+#### Backend Setup (Node.js)
+
+Navigate to the backend directory (if applicable, e.g., `backend/`):
 ```bash
-pip install -r requirements.txt
+cd backend
+npm install
+```
+Start the backend server using one of the following commands:
+```bash
+npm run dev
+# or
+node server.js
+```
+
+#### Frontend Setup (React)
+
+Navigate to the frontend directory:
+```bash
+cd frontend
+npm install
+npm start
 ```
 
 ### Usage
 
-Start the application:
-```bash
-python main.py
-```
+- Make sure both backend and frontend servers are running in separate terminals.
+- Access the frontend application in your browser (usually at `http://localhost:3000`).
+- The backend server will typically run at `http://localhost:5000` (or a configured port).
 
 ## Contributing
 
