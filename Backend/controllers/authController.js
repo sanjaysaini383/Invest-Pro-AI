@@ -1,93 +1,20 @@
-// const { generateJWT, hashString, compareHash } = require('../utils/helpers');
-
-// const register = async (req, res) => {
-//   try {
-//     const { email, password, firstName, lastName } = req.body;
-    
-//     // Hash password
-//     const hashedPassword = await hashString(password);
-    
-//     // Create user logic here (save to database)
-//     // For now, just return success
-    
-//     const token = generateJWT(
-//       { userId: 'temp_id', email },
-//       process.env.JWT_SECRET,
-//       process.env.JWT_EXPIRE
-//     );
-
-//     res.status(201).json({
-//       success: true,
-//       message: 'User registered successfully',
-//       token,
-//       user: { email, firstName, lastName }
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
-// const login = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-    
-//     // Authentication logic here
-//     // For now, just return success
-    
-//     const token = generateJWT(
-//       { userId: 'temp_id', email },
-//       process.env.JWT_SECRET,
-//       process.env.JWT_EXPIRE
-//     );
-
-//     res.json({
-//       success: true,
-//       message: 'Login successful',
-//       token,
-//       user: { email }
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
-// const logout = async (req, res) => {
-//   res.json({
-//     success: true,
-//     message: 'Logged out successfully'
-//   });
-// };
-
-// const getProfile = async (req, res) => {
-//   res.json({
-//     success: true,
-//     user: req.user || { message: 'User profile' }
-//   });
-// };
-
-// module.exports = {
-//   register,
-//   login,
-//   logout,
-//   getProfile
-// };
-
 const { generateToken } = require('../config/jwt');
-const { hashString, compareHash } = require('../utils/helpers');
 const User = require('../models/User');
 
 const register = async (req, res) => {
   try {
     const { email, password, firstName, lastName, phone } = req.body;
 
+    // Validate required fields
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, password, firstName, and lastName are required'
+      });
+    }
+
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -95,33 +22,32 @@ const register = async (req, res) => {
       });
     }
 
-    // Hash password
-    const hashedPassword = await hashString(password);
-
-    // Create user
+    // Create user (password will be hashed automatically by pre-save middleware)
     const user = new User({
-      email,
-      password: hashedPassword,
+      email: email.toLowerCase(),
+      password, // The User model will hash this in pre-save middleware
       firstName,
       lastName,
       phone
     });
 
-    await user.save();
+    const savedUser = await user.save();
 
     // Generate token
     const token = generateToken({
-      userId: user._id,
-      email: user.email
+      userId: savedUser._id,
+      email: savedUser.email
     });
 
     // Remove password from response
     const userResponse = {
-      id: user._id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      phone: user.phone
+      id: savedUser._id,
+      email: savedUser.email,
+      firstName: savedUser.firstName,
+      lastName: savedUser.lastName,
+      phone: savedUser.phone || null,
+      kycStatus: savedUser.kycStatus,
+      bankAccountLinked: savedUser.bankAccountLinked
     };
 
     res.status(201).json({
@@ -135,9 +61,27 @@ const register = async (req, res) => {
 
   } catch (error) {
     console.error('Registration error:', error);
+    
+    // Handle MongoDB duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this email already exists'
+      });
+    }
+
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: messages[0] || 'Validation failed'
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: error.message || 'Registration failed'
+      message: 'Registration failed. Please try again.'
     });
   }
 };
@@ -146,8 +90,16 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
+    }
+
     // Find user
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -155,8 +107,8 @@ const login = async (req, res) => {
       });
     }
 
-    // Check password
-    const isPasswordValid = await compareHash(password, user.password);
+    // Check password using the User model's comparePassword method
+    const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
@@ -180,7 +132,11 @@ const login = async (req, res) => {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      phone: user.phone
+      phone: user.phone || null,
+      kycStatus: user.kycStatus,
+      bankAccountLinked: user.bankAccountLinked,
+      totalInvested: user.totalInvested,
+      currentBalance: user.currentBalance
     };
 
     res.json({
@@ -196,22 +152,22 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Login failed'
+      message: 'Login failed. Please try again.'
     });
   }
 };
 
 const logout = async (req, res) => {
   try {
-    // In a real app, you might want to blacklist the token
     res.json({
       success: true,
       message: 'Logged out successfully'
     });
   } catch (error) {
+    console.error('Logout error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Logout failed'
     });
   }
 };
@@ -235,11 +191,13 @@ const getProfile = async (req, res) => {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          phone: user.phone,
+          phone: user.phone || null,
           kycStatus: user.kycStatus,
           bankAccountLinked: user.bankAccountLinked,
           totalInvested: user.totalInvested,
-          currentBalance: user.currentBalance
+          currentBalance: user.currentBalance,
+          lastLogin: user.lastLogin,
+          createdAt: user.createdAt
         }
       }
     });
@@ -247,7 +205,7 @@ const getProfile = async (req, res) => {
     console.error('Get profile error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Failed to get user profile'
     });
   }
 };
@@ -255,7 +213,6 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { firstName, lastName, phone } = req.body;
-    
     const user = await User.findByIdAndUpdate(
       req.user.userId,
       { firstName, lastName, phone },
@@ -285,8 +242,8 @@ const updateProfile = async (req, res) => {
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    
     const user = await User.findById(req.user.userId);
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -295,7 +252,7 @@ const changePassword = async (req, res) => {
     }
 
     // Verify current password
-    const isCurrentPasswordValid = await compareHash(currentPassword, user.password);
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
     if (!isCurrentPasswordValid) {
       return res.status(400).json({
         success: false,
@@ -303,9 +260,8 @@ const changePassword = async (req, res) => {
       });
     }
 
-    // Hash new password
-    const hashedNewPassword = await hashString(newPassword);
-    user.password = hashedNewPassword;
+    // Set new password (will be hashed by pre-save middleware)
+    user.password = newPassword;
     await user.save();
 
     res.json({
@@ -328,4 +284,3 @@ module.exports = {
   updateProfile,
   changePassword
 };
-
