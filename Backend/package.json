@@ -45,6 +45,7 @@
     "plaid": "^16.0.0",
     "redis": "^4.6.8",
     "sequelize": "^6.37.7",
+    "sklearn": "^1.0.0",
     "socket.io": "^4.7.2",
     "sqlite3": "^5.1.7",
     "tedious": "^18.6.1",

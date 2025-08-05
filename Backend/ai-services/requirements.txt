@@ -1,10 +1,22 @@
+# requirements.txt
 flask==3.0.0
 flask-cors==4.0.0
 numpy==1.26.2
 pandas==2.1.4
-scikit-learn==1.3.2
-joblib==1.3.2
-transformers==4.36.2
+
+# scikit-learn ≥1.4 (1.7.1 is the current release with Py3.12 wheels)
+scikit-learn==1.7.1
+joblib==1.3.2          # pulled automatically by scikit-learn, but pinned here
+
+# Hugging Face stack
+transformers==4.36.2    # main NLP library
+huggingface-hub>=0.20.0 # required by transformers
+tokenizers>=0.14,<0.19  # required by transformers
+regex!=2019.12.17       # required by transformers
+safetensors>=0.3.1      # required by transformers
+
+# deep-learning backend
 torch==2.1.2
+
 requests==2.31.0
 python-dotenv==1.0.0
