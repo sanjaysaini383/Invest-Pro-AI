@@ -43,13 +43,16 @@ export const AuthProvider = ({ children }) => {
   const login = async (credentials) => {
     try {
       setLoading(true);
-      console.log('Attempting login with:', credentials);
       
       const response = await authAPI.login(credentials);
+      const responseData = response.data;
       console.log('Login response:', response);
+      if(!responseData.success){
+        throw new Error(responseData.message);
+      }
       
       // Backend returns response.data.data = { token, user }
-      const { token, user } = response.data.data || response.data;
+      const { token, user } = responseData.data;
       
       if (!token || !user) {
         throw new Error('Invalid response format from server');
@@ -76,13 +79,27 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('authToken');
         localStorage.removeItem('user');
       }
-      
-      return {
-        success: false,
-        message: error.response?.data?.message || error.message || 'Login failed. Please try again.'
-      };
+      if (error.response) {
+        // Server responded with an error
+        return {
+          success: false,
+          message: error.response.data.message || 'Login failed'
+        };
+      } else if (error.request) {
+        // Network error
+        return {
+          success: false,
+          message: 'Unable to connect to the server. Please check your internet connection.'
+        };
+      } else {
+        // Other errors
+        return {
+          success: false,
+          message: error.message || 'An unexpected error occurred'
+        };
+      }
     } finally {
-      setLoading(false);
+      setLoading(false);  
     }
   };
 
