@@ -1,21 +1,56 @@
-// app/challenges/page.tsx
 'use client';
+
+import { useState, useEffect } from 'react';
+import { gamificationAPI } from '@/lib/api';
 import Header from '@/components/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import { challengesAPI } from '@/lib/api';
-import { useState, useEffect } from 'react';
+
+interface Challenge {
+  _id: string;
+  title: string;
+  description: string;
+  reward: string;
+  type: 'daily' | 'weekly' | 'monthly';
+  current?: number;
+  target?: number;
+  progress?: number;
+  status: 'active' | 'completed' | 'available';
+  expiresAt: string;
+}
+
+interface Badge {
+  _id: string;
+  name: string;
+  description: string;
+  icon: string;
+  earned: boolean;
+  earnedAt?: string;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+}
+
+interface UserStats {
+  totalPoints: number;
+  rank: number;
+  streak: number;
+  level: number;
+}
+
+interface LeaderboardEntry {
+  _id: string;
+  username: string;
+  points: number;
+  rank: number;
+  isCurrentUser?: boolean;
+}
 
 export default function ChallengesPage() {
-  const [challenges, setChallenges] = useState([]);
-  const [badges, setBadges] = useState([]);
-  const [leaderboard, setLeaderboard] = useState([]);
-  const [userStats, setUserStats] = useState({
-    totalPoints: 2480,
-    rank: 4,
-    streak: 12
-  });
+  const [activeChallenges, setActiveChallenges] = useState<Challenge[]>([]);
+  const [badges, setBadges] = useState<Badge[]>([]);
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [joinLoading, setJoinLoading] = useState<string | null>(null);
 
   useEffect(() => {
     fetchChallengesData();
@@ -23,49 +58,40 @@ export default function ChallengesPage() {
 
   const fetchChallengesData = async () => {
     try {
-      const [challengesRes, badgesRes, leaderboardRes] = await Promise.all([
-        challengesAPI.getAll(),
-        challengesAPI.getBadges(),
-        challengesAPI.getLeaderboard()
+      setLoading(true);
+      
+      const [challengesRes, badgesRes, statsRes, leaderboardRes] = await Promise.allSettled([
+        gamificationAPI.getActiveChallenges(),
+        gamificationAPI.getBadges(),
+        gamificationAPI.getUserStats(),
+        gamificationAPI.getLeaderboard()
       ]);
 
-      setChallenges(challengesRes.data.challenges || [
-        {
-          id: 1,
-          title: 'Weekly Saver',
-          description: 'Invest ₹1000 this week',
-          progress: 75,
-          target: 1000,
-          current: 750,
-          reward: '50 points'
-        },
-        {
-          id: 2,
-          title: 'Green Investor',
-          description: 'Invest in 3 ESG funds',
-          progress: 66,
-          target: 3,
-          current: 2,
-          reward: '100 points'
-        }
-      ]);
+      // Handle challenges
+      if (challengesRes.status === 'fulfilled') {
+        setActiveChallenges(challengesRes.value.data.challenges || []);
+      }
 
-      setBadges(badgesRes.data.badges || [
-        { id: 1, name: 'First Investment', icon: 'ri-medal-fill', earned: true },
-        { id: 2, name: 'Green Champion', icon: 'ri-leaf-fill', earned: true },
-        { id: 3, name: 'Consistent Saver', icon: 'ri-calendar-check-fill', earned: true },
-        { id: 4, name: 'Risk Taker', icon: 'ri-rocket-fill', earned: false },
-        { id: 5, name: 'Goal Achiever', icon: 'ri-trophy-fill', earned: false },
-        { id: 6, name: 'Tech Investor', icon: 'ri-computer-fill', earned: false }
-      ]);
+      // Handle badges
+      if (badgesRes.status === 'fulfilled') {
+        setBadges(badgesRes.value.data.badges || []);
+      }
 
-      setLeaderboard(leaderboardRes.data.leaderboard || [
-        { rank: 1, username: 'GreenInvestor92', points: 2850 },
-        { rank: 2, username: 'SmartSaver45', points: 2720 },
-        { rank: 3, username: 'EcoWarrior', points: 2650 },
-        { rank: 4, username: 'YoungInvestor', points: 2480 },
-        { rank: 5, username: 'WiseOwl88', points: 2350 }
-      ]);
+      // Handle user stats
+      if (statsRes.status === 'fulfilled') {
+        setUserStats(statsRes.value.data.stats || {
+          totalPoints: 0,
+          rank: 0,
+          streak: 0,
+          level: 1
+        });
+      }
+
+      // Handle leaderboard
+      if (leaderboardRes.status === 'fulfilled') {
+        setLeaderboard(leaderboardRes.value.data.leaderboard || []);
+      }
+
     } catch (error) {
       console.error('Error fetching challenges data:', error);
     } finally {
@@ -73,14 +99,56 @@ export default function ChallengesPage() {
     }
   };
 
-  const participateInChallenge = async (challengeId) => {
+  const handleJoinChallenge = async (challengeId: string) => {
     try {
-      await challengesAPI.participate(challengeId);
-      alert('Successfully joined the challenge!');
-      fetchChallengesData(); // Refresh data
+      setJoinLoading(challengeId);
+      
+      const response = await gamificationAPI.joinChallenge(challengeId);
+      
+      if (response.data.success) {
+        // Refresh challenges data
+        fetchChallengesData();
+      } else {
+        alert('Failed to join challenge');
+      }
     } catch (error) {
-      console.error('Error participating in challenge:', error);
-      alert('Failed to join challenge. Please try again.');
+      console.error('Error joining challenge:', error);
+      alert('Failed to join challenge');
+    } finally {
+      setJoinLoading(null);
+    }
+  };
+
+  const formatTimeLeft = (expiresAt: string) => {
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diffMs = expiry.getTime() - now.getTime();
+    
+    if (diffMs <= 0) return 'Expired';
+    
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    
+    if (days > 0) return `${days}d ${hours}h left`;
+    return `${hours}h left`;
+  };
+
+  const getBadgeRarityColor = (rarity: string) => {
+    switch (rarity) {
+      case 'common': return 'border-gray-300 bg-gray-50';
+      case 'rare': return 'border-blue-300 bg-blue-50';
+      case 'epic': return 'border-purple-300 bg-purple-50';
+      case 'legendary': return 'border-yellow-300 bg-yellow-50';
+      default: return 'border-gray-300 bg-gray-50';
+    }
+  };
+
+  const getChallengeTypeColor = (type: string) => {
+    switch (type) {
+      case 'daily': return 'bg-green-100 text-green-800';
+      case 'weekly': return 'bg-blue-100 text-blue-800';
+      case 'monthly': return 'bg-purple-100 text-purple-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -88,8 +156,8 @@ export default function ChallengesPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Header />
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>
+        <div className="flex items-center justify-center h-96">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600"></div>
         </div>
       </div>
     );
@@ -105,113 +173,214 @@ export default function ChallengesPage() {
           <p className="text-gray-600">Level up your investing game with fun challenges and rewards</p>
         </div>
 
-        {/* User Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6 text-center">
-            <div className="text-3xl font-bold text-blue-600 mb-2">{userStats.totalPoints.toLocaleString()}</div>
-            <div className="text-gray-600">Total Points</div>
-          </Card>
-          <Card className="p-6 text-center">
-            <div className="text-3xl font-bold text-green-600 mb-2">#{userStats.rank}</div>
-            <div className="text-gray-600">Rank</div>
-          </Card>
-          <Card className="p-6 text-center">
-            <div className="text-3xl font-bold text-purple-600 mb-2">{userStats.streak}</div>
-            <div className="text-gray-600">Day Streak</div>
-          </Card>
-        </div>
-
-        {/* Active Challenges */}
-        <Card className="p-6 mb-8">
-          <h3 className="text-xl font-semibold mb-4">Active Challenges</h3>
-          <p className="text-gray-600 mb-6">Complete challenges to earn points and badges</p>
-          
-          <div className="space-y-4">
-            {challenges.map((challenge) => (
-              <div key={challenge.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h4 className="font-semibold">{challenge.title}</h4>
-                    <p className="text-gray-600 text-sm">{challenge.description}</p>
-                    <p className="text-green-600 text-sm font-medium">{challenge.reward}</p>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    onClick={() => participateInChallenge(challenge.id)}
-                  >
-                    Join
-                  </Button>
-                </div>
-                
-                <div className="mb-2">
-                  <div className="flex justify-between text-sm text-gray-600 mb-1">
-                    <span>Progress</span>
-                    <span>
-                      {typeof challenge.current === 'number' && typeof challenge.target === 'number' 
-                        ? `${challenge.current}/${challenge.target}` 
-                        : `${challenge.progress}%`}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${challenge.progress}%` }}
-                    ></div>
-                  </div>
-                </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Active Challenges */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-900">Active Challenges</h2>
+                <Button onClick={fetchChallengesData} size="sm" variant="outline">
+                  Refresh
+                </Button>
               </div>
-            ))}
-          </div>
-        </Card>
-
-        {/* Badge Collection */}
-        <Card className="p-6 mb-8">
-          <h3 className="text-xl font-semibold mb-4">Badge Collection</h3>
-          <p className="text-gray-600 mb-6">
-            Unlock achievements as you invest • {badges.filter(badge => badge.earned).length} of {badges.length} earned
-          </p>
-          
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {badges.map((badge) => (
-              <div key={badge.id} className="text-center">
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-2 ${
-                  badge.earned ? 'bg-yellow-100' : 'bg-gray-100'
-                }`}>
-                  <i className={`${badge.icon} text-2xl ${
-                    badge.earned ? 'text-yellow-600' : 'text-gray-400'
-                  }`}></i>
-                </div>
-                <p className={`text-sm font-medium ${
-                  badge.earned ? 'text-gray-900' : 'text-gray-500'
-                }`}>
-                  {badge.name}
-                </p>
-                {badge.earned && (
-                  <p className="text-xs text-green-600 font-medium">Earned!</p>
+              
+              <p className="text-gray-600 mb-6">Complete challenges to earn points and badges</p>
+              
+              <div className="space-y-4">
+                {activeChallenges.map((challenge) => (
+                  <div key={challenge._id} className="border rounded-lg p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-medium text-gray-900">{challenge.title}</h3>
+                          <span className={`px-2 py-1 text-xs rounded ${getChallengeTypeColor(challenge.type)}`}>
+                            {challenge.type}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">{challenge.description}</p>
+                        <p className="text-sm font-medium text-indigo-600">{challenge.reward}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500 mb-2">{formatTimeLeft(challenge.expiresAt)}</p>
+                        {challenge.status === 'available' && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleJoinChallenge(challenge._id)}
+                            disabled={joinLoading === challenge._id}
+                          >
+                            {joinLoading === challenge._id ? 'Joining...' : 'Join'}
+                          </Button>
+                        )}
+                        {challenge.status === 'completed' && (
+                          <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-800">
+                            Completed ✓
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {challenge.current !== undefined && challenge.target !== undefined && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>Progress</span>
+                          <span>{challenge.current}/{challenge.target}</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min((challenge.current / challenge.target) * 100, 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {challenge.progress !== undefined && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>Progress</span>
+                          <span>{challenge.progress}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(challenge.progress, 100)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                
+                {activeChallenges.length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 mb-4">No active challenges available</p>
+                    <Button onClick={fetchChallengesData}>Refresh</Button>
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
-        </Card>
+            </Card>
 
-        {/* Leaderboard */}
-        <Card className="p-6">
-          <h3 className="text-xl font-semibold mb-4">Leaderboard</h3>
-          <div className="space-y-3">
-            {leaderboard.map((user) => (
-              <div key={user.rank} className="flex items-center justify-between py-2 px-4 rounded-lg bg-gray-50">
-                <div className="flex items-center">
-                  <span className="font-bold text-lg w-8">#{user.rank}</span>
-                  <span className="font-medium">{user.username}</span>
-                  {user.username === 'YoungInvestor' && (
-                    <span className="ml-2 text-sm text-blue-600 font-medium">(You)</span>
-                  )}
-                </div>
-                <span className="font-semibold">{user.points.toLocaleString()} pts</span>
+            {/* Badge Collection */}
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Badge Collection</h2>
+              <p className="text-gray-600 mb-4">
+                Unlock achievements as you invest • {badges.filter(badge => badge.earned).length} of {badges.length} earned
+              </p>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {badges.map((badge) => (
+                  <div
+                    key={badge._id}
+                    className={`border-2 rounded-lg p-4 text-center transition-all ${
+                      badge.earned 
+                        ? `${getBadgeRarityColor(badge.rarity)} opacity-100` 
+                        : 'border-gray-200 bg-gray-50 opacity-50'
+                    }`}
+                  >
+                    <div className="text-2xl mb-2">{badge.icon}</div>
+                    <h3 className="font-medium text-sm text-gray-900 mb-1">{badge.name}</h3>
+                    <p className="text-xs text-gray-600">{badge.description}</p>
+                    {badge.earned && (
+                      <div className="mt-2">
+                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
+                          Earned!
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            </Card>
           </div>
-        </Card>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Your Stats */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Your Stats</h3>
+              
+              {userStats && (
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-indigo-600">
+                      {userStats.totalPoints.toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-500">Total Points</div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-indigo-600">
+                      #{userStats.rank}
+                    </div>
+                    <div className="text-sm text-gray-500">Rank</div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-indigo-600">
+                      {userStats.streak}
+                    </div>
+                    <div className="text-sm text-gray-500">Streak</div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-indigo-600">
+                      {userStats.level}
+                    </div>
+                    <div className="text-sm text-gray-500">Level</div>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Leaderboard */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Leaderboard</h3>
+              
+              <div className="space-y-3">
+                {leaderboard.slice(0, 10).map((user) => (
+                  <div
+                    key={user._id}
+                    className={`flex items-center justify-between p-2 rounded ${
+                      user.isCurrentUser ? 'bg-indigo-50 border border-indigo-200' : ''
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-sm font-medium text-gray-900">
+                        #{user.rank}
+                      </span>
+                      <span className="text-sm text-gray-700">
+                        {user.username}
+                        {user.isCurrentUser && (
+                          <span className="ml-1 text-xs text-indigo-600">(You)</span>
+                        )}
+                      </span>
+                    </div>
+                    <span className="text-sm font-medium text-gray-900">
+                      {user.points.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              
+              {leaderboard.length === 0 && (
+                <p className="text-center text-gray-500 py-4">No leaderboard data available</p>
+              )}
+            </Card>
+
+            {/* Coming Soon */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Coming Soon</h3>
+              <p className="text-sm text-gray-600 mb-4">New challenges launching next week!</p>
+              <div className="space-y-2 text-sm text-gray-600">
+                <div>• Tournament Mode</div>
+                <div>• Team Challenges</div>
+                <div>• Premium Rewards</div>
+                <div>• Social Features</div>
+              </div>
+            </Card>
+          </div>
+        </div>
       </main>
     </div>
   );

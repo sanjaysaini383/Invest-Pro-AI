@@ -1,91 +1,64 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-here';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key';
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
+// JWT configuration
+const JWT_CONFIG = {
+  accessTokenSecret: process.env.JWT_SECRET || 'your-access-token-secret',
+  refreshTokenSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-token-secret',
+  accessTokenExpire: process.env.JWT_EXPIRE || '15m',
+  refreshTokenExpire: process.env.JWT_REFRESH_EXPIRE || '30d'
+};
 
+// Generate single token (for backward compatibility)
 const generateToken = (payload) => {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-    issuer: 'investai',
-    audience: 'investai-users'
+  return jwt.sign(payload, JWT_CONFIG.accessTokenSecret, {
+    expiresIn: JWT_CONFIG.accessTokenExpire
   });
 };
 
-const generateRefreshToken = (payload) => {
-  return jwt.sign(payload, JWT_REFRESH_SECRET, {
-    expiresIn: JWT_REFRESH_EXPIRES_IN,
-    issuer: 'investai',
-    audience: 'investai-users'
+// Generate access and refresh tokens
+const generateTokens = (payload) => {
+  const accessToken = jwt.sign(payload, JWT_CONFIG.accessTokenSecret, {
+    expiresIn: JWT_CONFIG.accessTokenExpire
   });
+
+  const refreshToken = jwt.sign(
+    { ...payload, type: 'refresh' },
+    JWT_CONFIG.refreshTokenSecret,
+    { expiresIn: JWT_CONFIG.refreshTokenExpire }
+  );
+
+  return { accessToken, refreshToken };
 };
 
-const verifyToken = (token) => {
+// Verify access token
+const verifyAccessToken = (token) => {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, JWT_CONFIG.accessTokenSecret);
   } catch (error) {
-    throw new Error('Invalid token');
+    throw error;
   }
 };
 
+// Verify refresh token
 const verifyRefreshToken = (token) => {
   try {
-    return jwt.verify(token, JWT_REFRESH_SECRET);
+    return jwt.verify(token, JWT_CONFIG.refreshTokenSecret);
   } catch (error) {
-    throw new Error('Invalid refresh token');
+    throw error;
   }
 };
 
+// Decode token without verification (for debugging)
 const decodeToken = (token) => {
-  try {
-    return jwt.decode(token);
-  } catch (error) {
-    throw new Error('Invalid token format');
-  }
-};
-
-const getTokenFromHeader = (req) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-  return authHeader.substring(7);
-};
-
-const isTokenExpired = (token) => {
-  try {
-    const decoded = jwt.decode(token);
-    if (!decoded || !decoded.exp) return true;
-    
-    const currentTime = Math.floor(Date.now() / 1000);
-    return decoded.exp < currentTime;
-  } catch (error) {
-    return true;
-  }
-};
-
-const getTokenExpirationTime = (token) => {
-  try {
-    const decoded = jwt.decode(token);
-    if (!decoded || !decoded.exp) return null;
-    return new Date(decoded.exp * 1000);
-  } catch (error) {
-    return null;
-  }
+  return jwt.decode(token);
 };
 
 module.exports = {
   generateToken,
-  generateRefreshToken,
-  verifyToken,
+  generateTokens,
+  verifyAccessToken,
   verifyRefreshToken,
   decodeToken,
-  getTokenFromHeader,
-  isTokenExpired,
-  getTokenExpirationTime,
-  JWT_SECRET,
-  JWT_EXPIRES_IN,
-  JWT_REFRESH_SECRET,
-  JWT_REFRESH_EXPIRES_IN
-}; 
+  JWT_CONFIG
+};

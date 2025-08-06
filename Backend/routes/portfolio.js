@@ -1,7 +1,7 @@
 // routes/portfolio.js
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 // GET /api/portfolio
 router.get('/', auth, async (req, res) => {

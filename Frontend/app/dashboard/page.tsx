@@ -1,68 +1,119 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { portfolioAPI, investmentAPI, gamificationAPI } from '@/lib/api';
 import Header from '@/components/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import { portfolioAPI, investmentAPI } from '@/lib/api';
+import Link from 'next/link';
+
+interface Portfolio {
+  _id: string;
+  totalBalance: number;
+  gainLoss: number;
+  performanceScore: number;
+  holdings: any[];
+}
+
+interface Investment {
+  _id: string;
+  name: string;
+  sector: string;
+  expectedReturn: number;
+  risk: string;
+  price: number;
+  change: number;
+  esgScore?: number;
+}
+
+interface UserStats {
+  totalPoints: number;
+  rank: number;
+  streak: number;
+  level: number;
+}
 
 export default function DashboardPage() {
-  const { user, loading: authLoading } = useAuth();
-  const router = useRouter();
-  const [portfolio, setPortfolio] = useState(null);
-  const [investments, setInvestments] = useState([]);
+  const { user } = useAuth();
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login');
-      return;
-    }
-
     if (user) {
       fetchDashboardData();
     }
-  }, [user, authLoading, router]);
+  }, [user]);
 
   const fetchDashboardData = async () => {
     try {
-      const [portfolioRes, investmentsRes] = await Promise.all([
+      setLoading(true);
+      setError(null);
+
+      // Fetch all dashboard data concurrently
+      const [portfolioRes, investmentsRes, statsRes] = await Promise.allSettled([
         portfolioAPI.getPortfolio(),
-        investmentAPI.getAll()
+        investmentAPI.getSuggestions({ limit: 6 }),
+        gamificationAPI.getUserStats()
       ]);
-      
-      setPortfolio(portfolioRes.data || {
-        totalBalance: 125000,
-        gainLoss: 2.5,
-        performanceScore: 85
-      });
-      
-      setInvestments(investmentsRes.data?.slice(0, 3) || [
-        { id: 1, name: 'Green Energy Fund', sector: 'Renewable Energy', return: '+12.5%' },
-        { id: 2, name: 'Tech Growth ETF', sector: 'Technology', return: '+8.2%' },
-        { id: 3, name: 'Healthcare Fund', sector: 'Healthcare', return: '+15.1%' }
-      ]);
+
+      // Handle portfolio data
+      if (portfolioRes.status === 'fulfilled') {
+        setPortfolio(portfolioRes.value.data.portfolio || {
+          _id: 'default',
+          totalBalance: 0,
+          gainLoss: 0,
+          performanceScore: 0,
+          holdings: []
+        });
+      }
+
+      // Handle investments data
+      if (investmentsRes.status === 'fulfilled') {
+        setInvestments(investmentsRes.value.data.suggestions || []);
+      }
+
+      // Handle user stats data
+      if (statsRes.status === 'fulfilled') {
+        setUserStats(statsRes.value.data.stats || {
+          totalPoints: 0,
+          rank: 0,
+          streak: 0,
+          level: 1
+        });
+      }
+
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      // Use fallback data
-      setPortfolio({
-        totalBalance: 125000,
-        gainLoss: 2.5,
-        performanceScore: 85
-      });
+      console.error('Dashboard data fetch error:', error);
+      setError('Failed to load dashboard data. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (authLoading || loading) {
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const formatChange = (change: number) => {
+    const sign = change >= 0 ? '+' : '';
+    return `${sign}${change.toFixed(2)}%`;
+  };
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your dashboard...</p>
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="flex items-center justify-center h-96">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600"></div>
         </div>
       </div>
     );
@@ -81,94 +132,197 @@ export default function DashboardPage() {
           <p className="text-gray-600">Here's your investment overview for today</p>
         </div>
 
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
+            {error}
+            <button
+              onClick={fetchDashboardData}
+              className="ml-4 underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="p-6 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-            <h3 className="text-sm font-medium opacity-90">Total Balance</h3>
-            <p className="text-2xl font-bold">₹{portfolio?.totalBalance?.toLocaleString() || '0'}</p>
-            <p className={`text-sm ${portfolio?.gainLoss >= 0 ? 'text-green-200' : 'text-red-200'}`}>
-              {portfolio?.gainLoss >= 0 ? '+' : ''}{portfolio?.gainLoss}%
-            </p>
-          </Card>
-
           <Card className="p-6">
-            <h3 className="text-sm font-medium text-gray-600">Portfolio Growth</h3>
-            <p className="text-2xl font-bold text-gray-900">
-              +{((portfolio?.totalBalance - 100000) / 1000).toFixed(1)}K
-            </p>
-            <p className="text-sm text-gray-500">This month</p>
-          </Card>
-
-          <Card className="p-6">
-            <h3 className="text-sm font-medium text-gray-600">Investment Score</h3>
-            <p className="text-2xl font-bold text-gray-900">{portfolio?.performanceScore || 85}/100</p>
-            <p className="text-sm text-gray-500">Based on recent activity</p>
-          </Card>
-
-          <Card className="p-6">
-            <h3 className="text-sm font-medium text-gray-600">Active Investments</h3>
-            <p className="text-2xl font-bold text-gray-900">{investments.length}</p>
-            <p className="text-sm text-gray-500">Portfolios</p>
-          </Card>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">AI Investment Recommendations</h3>
-            {investments.slice(0, 2).map((investment, index) => (
-              <div key={investment.id} className="flex justify-between items-center py-2">
-                <div>
-                  <p className="font-medium text-gray-900">{investment.name}</p>
-                  <p className="text-sm text-gray-600">{investment.sector}</p>
-                </div>
-                <span className="text-green-600 font-medium">{investment.return}</span>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Balance</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(portfolio?.totalBalance || 0)}
+                </p>
+                <p className={`text-sm ${portfolio?.gainLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {formatChange(portfolio?.gainLoss || 0)}
+                </p>
               </div>
-            ))}
-            <Button variant="outline" size="sm" className="w-full mt-4" onClick={() => router.push('/suggestions')}>
-              View All Suggestions
-            </Button>
+              <div className="p-3 bg-indigo-100 rounded-full">
+                <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                </svg>
+              </div>
+            </div>
           </Card>
 
           <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Investment Suggestions</h3>
-            <p className="text-gray-600 mb-4">Get AI-powered investment recommendations</p>
-            <Button variant="primary" size="sm" className="w-full" onClick={() => router.push('/suggestions')}>
-              <i className="ri-lightbulb-line mr-2"></i>
-              Get Suggestions
-            </Button>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Portfolio Growth</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  +{((portfolio?.totalBalance || 0) / 1000).toFixed(1)}K
+                </p>
+                <p className="text-sm text-gray-500">This month</p>
+              </div>
+              <div className="p-3 bg-green-100 rounded-full">
+                <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </div>
+            </div>
           </Card>
 
           <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Round-Up Investing</h3>
-            <p className="text-gray-600 mb-4">Invest spare change automatically</p>
-            <Button variant="secondary" size="sm" className="w-full" onClick={() => router.push('/roundup')}>
-              <i className="ri-coins-line mr-2"></i>
-              Setup Round-Up
-            </Button>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Investment Score</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {portfolio?.performanceScore || 85}/100
+                </p>
+                <p className="text-sm text-gray-500">Based on recent activity</p>
+              </div>
+              <div className="p-3 bg-blue-100 rounded-full">
+                <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Active Investments</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {portfolio?.holdings?.length || 0}
+                </p>
+                <p className="text-sm text-gray-500">Portfolios</p>
+              </div>
+              <div className="p-3 bg-purple-100 rounded-full">
+                <svg className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </div>
+            </div>
           </Card>
         </div>
 
-        {/* Portfolio Performance Chart Placeholder */}
-        <Card className="p-6 mb-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Portfolio Performance</h3>
-          <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center">
-            <div className="text-center">
-              <i className="ri-line-chart-line text-4xl text-gray-400 mb-2"></i>
-              <p className="text-gray-500">Portfolio chart will be displayed here</p>
-            </div>
-          </div>
-        </Card>
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* AI Investment Recommendations */}
+          <div className="lg:col-span-2">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-900">AI Investment Recommendations</h2>
+                <Link href="/suggestions">
+                  <Button variant="outline" size="sm">View All</Button>
+                </Link>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {investments.slice(0, 4).map((investment) => (
+                  <div key={investment._id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-medium text-gray-900">{investment.name}</h3>
+                      <span className={`px-2 py-1 text-xs rounded ${
+                        investment.change >= 0 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {formatChange(investment.change)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">{investment.sector}</p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-semibold">{formatCurrency(investment.price)}</span>
+                      <Button size="sm">Invest</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-        {/* Investment Challenges */}
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Investment Challenges</h3>
-          <p className="text-gray-600 mb-4">Level up your investing game</p>
-          <Button variant="outline" size="sm" onClick={() => router.push('/challenges')}>
-            <i className="ri-trophy-line mr-2"></i>
-            View Challenges
-          </Button>
-        </Card>
+              {investments.length === 0 && (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 mb-4">No investment recommendations available</p>
+                  <Button onClick={fetchDashboardData}>Refresh</Button>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="space-y-6">
+            {/* Investment Suggestions */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Investment Suggestions</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Get AI-powered investment recommendations
+              </p>
+              <Link href="/suggestions">
+                <Button className="w-full">Explore Suggestions</Button>
+              </Link>
+            </Card>
+
+            {/* Round-Up Investing */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Round-Up Investing</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Invest spare change automatically
+              </p>
+              <Link href="/roundup">
+                <Button variant="outline" className="w-full">Setup Round-Up</Button>
+              </Link>
+            </Card>
+
+            {/* Portfolio Performance */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Portfolio Performance</h3>
+              <div className="h-32 bg-gray-100 rounded flex items-center justify-center mb-4">
+                <span className="text-gray-500">Portfolio chart will be displayed here</span>
+              </div>
+              <Link href="/portfolio">
+                <Button variant="outline" className="w-full">View Portfolio</Button>
+              </Link>
+            </Card>
+
+            {/* Investment Challenges */}
+            <Card className="p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">Investment Challenges</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Level up your investing game
+              </p>
+              {userStats && (
+                <div className="space-y-2 text-sm mb-4">
+                  <div className="flex justify-between">
+                    <span>Points:</span>
+                    <span className="font-medium">{userStats.totalPoints.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Rank:</span>
+                    <span className="font-medium">#{userStats.rank}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Streak:</span>
+                    <span className="font-medium">{userStats.streak} days</span>
+                  </div>
+                </div>
+              )}
+              <Link href="/challenges">
+                <Button variant="outline" className="w-full">View Challenges</Button>
+              </Link>
+            </Card>
+          </div>
+        </div>
       </main>
     </div>
   );

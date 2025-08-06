@@ -2,7 +2,7 @@
 
 import Header from '@/components/Header';
 import Card from '@/components/ui/Card';
-import { mockUser, mockSpendingPattern, mockBehavioralTags } from '@/lib/mockData';
+// import { mockUser, mockSpendingPattern, mockBehavioralTags } from '@/lib/mockData';
 
 export default function InsightsPage() {
   const totalSpending = mockSpendingPattern.reduce((sum, item) => sum + item.amount, 0);

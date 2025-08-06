@@ -3,7 +3,7 @@
 import Header from '@/components/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import { mockChallenges, mockLeaderboard, mockBadges } from '@/lib/mockData';
+// import { mockChallenges, mockLeaderboard, mockBadges } from '@/lib/mockData';
 
 export default function GamificationPage() {
   return (

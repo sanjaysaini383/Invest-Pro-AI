@@ -1,8 +1,7 @@
 // routes/investments.js
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
-
+const { auth } = require('../middleware/auth');
 // GET /api/investments - Get all investments
 router.get('/', auth, async (req, res) => {
   try {

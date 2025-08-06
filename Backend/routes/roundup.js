@@ -1,7 +1,7 @@
 // routes/roundup.js
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 // GET /api/roundup/settings
 router.get('/settings', auth, async (req, res) => {
